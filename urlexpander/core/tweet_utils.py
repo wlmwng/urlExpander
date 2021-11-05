@@ -3,7 +3,7 @@ Check out the smappdragon package for Tweet parsing.
 https://github.com/SMAPPNYU/smappdragon
 """
 
-from urlexpander.core.api import get_domain
+from urlexpander.core.url_utils import get_domain
 
 __all__ = ['get_link', 'count_matrix']
 __author__= 'Leon Yin'

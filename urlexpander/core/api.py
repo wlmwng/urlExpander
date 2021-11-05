@@ -76,7 +76,8 @@ def _parse_error(error, verbose=False):
 
 
 
-def _expand(url, timeout=2, verbose=False, use_head=True, **kwargs):
+
+def _expand(url, timeout=10, verbose=False, use_head=True, **kwargs):
     """Expands a URL, while taking into consideration: special URL shortener or analytics platforms that either need a sophisticated
     redirect(st.sh), or parsing of the url (ln.is)
 
@@ -99,6 +100,7 @@ def _expand(url, timeout=2, verbose=False, use_head=True, **kwargs):
     else:
         http_op = requests.get
     try:
+        time.sleep(randint(constants.MIN_DELAY, constants.MAX_DELAY))
         r = http_op(
             url,
             allow_redirects=True,

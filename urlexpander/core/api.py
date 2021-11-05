@@ -173,147 +173,188 @@ def _expand(link, timeout=2, verbose=False, use_head=True, **kwargs):
                 resolved_domain=domain,
                 resolved_url=url_long)
 
-def expand(links_to_unshorten, chunksize=1280, n_workers=1, 
-           cache_file=None, random_seed=303, 
-           verbose=0, filter_function=None, **kwargs):
-    '''
-    Calls expand with multiple (``n_workers``) threads to unshorten a list of urls. Unshortens all urls by default, unless one sets a ``filter_function``.
-    
-    :param links_to_unshorten: (list, str) either an idividual or list (str) of urls to unshorten
-    :param chunksize: (int) chunks links_to_unshorten, which makes computation quicker with larger inputs
-    :param n_workers: (int) how many threads
-    :param cache_file: (str) a path to a json file to read and write results in
-    :param random_seed: (int) initializes the random state for shuffling the input
-    :param verbose: (int) whether to print updates and errors. 0 is silent. 1 is progress bar. 2 is progress bar and errors.
-    :param filter_function: (func) a boolean used to filter url shorteners out
-        
-    
-    :returns: (list) a list of resolved urls
-    '''
-    
-    if isinstance(links_to_unshorten, str):
-        return _expand(links_to_unshorten, **kwargs)['resolved_url']
-    
+
+def expand(
+    urls_to_expand,
+    chunksize=1280,
+    n_workers=1,
+    cache_file=None,
+    random_seed=303,
+    verbose=0,
+    filter_function=None,
+    **kwargs,
+):
+    """Calls expand with multiple (``n_workers``) threads to unshorten a list of urls. Unshortens all urls by default, unless one sets a ``filter_function``.
+
+    :param chunksize: chunks urls_to_expand, which makes computation quicker with larger inputs (Default value = 1280)
+    :type chunksize: int
+    :param n_workers: how many threads (Default value = 1)
+    :type n_workers: int
+    :param cache_file: a path to a json file to read and write results in (Default value = None)
+    :type cache_file: str
+    :param random_seed: initializes the random state for shuffling the input (Default value = 303)
+    :type random_seed: int
+    :param verbose: whether to print updates and errors. 0 is silent. 1 is progress bar. 2 is progress bar and errors. (Default value = 0)
+    :type verbose: int
+    :param filter_function: a boolean used to filter url shorteners out (Default value = None)
+    :type filter_function: func
+    :param **kwargs:
+    :returns: unshortened_urls_-> resolved URLs
+    :rtype: list
+
+    """
+
+    if isinstance(urls_to_expand, str):
+        return _expand(urls_to_expand, **kwargs)["resolved_url"]
+
     else:
-        links_to_unshorten_ = links_to_unshorten.copy()
+        urls_to_expand_ = urls_to_expand.copy()
 
         # get uniques
-        if isinstance(links_to_unshorten, list):
-            links_to_unshorten = list(set(links_to_unshorten))
-        elif isinstance(links_to_unshorten, pd.Series):
-            links_to_unshorten = links_to_unshorten.unique().tolist()
+        if isinstance(urls_to_expand, list):
+            urls_to_expand = list(set(urls_to_expand))
+        elif isinstance(urls_to_expand, pd.Series):
+            urls_to_expand = urls_to_expand.unique().tolist()
 
-        # shuffle the inputs, this is to reduce the changes of making requests to the same domain.
+        # shuffle the inputs, this is to reduce the chances of making requests to the same domain.
         np.random.seed(random_seed)
-        np.random.shuffle(links_to_unshorten)
+        np.random.shuffle(urls_to_expand)
 
         # filter for URLs that need to be shortened according to some boolean function.
         if filter_function:
-            links_to_unshorten = [_ for _ in links_to_unshorten if filter_function(_)]
+            urls_to_expand = [_ for _ in urls_to_expand if filter_function(_)]
 
         # read cache file
-        unshortened_urls = []
+        expanded_urls = []
         if cache_file and os.path.exists(cache_file):
-            with open(cache_file, 'r') as f_:
+            with open(cache_file, "r") as f_:
                 for line in f_:
-                    unshortened_urls.append(json.loads(line))
-                abd_ = [_['original_url'] for _ in unshortened_urls]
-                links_to_unshorten = list(set(abd_).symmetric_difference(set(links_to_unshorten)))
-        
+                    expanded_urls.append(json.loads(line))
+                abd_ = [_["original_url"] for _ in expanded_urls]
+                urls_to_expand = list(
+                    set(abd_).symmetric_difference(set(urls_to_expand))
+                )
+
         # chunk the list of arguments
         if verbose:
-            print("There are {} links to unshorten".format(len(links_to_unshorten)))
-            total = (len(links_to_unshorten) // chunksize) + 1
-            chunk_iter = tqdm(_chunks(links_to_unshorten, chunksize=chunksize), total=total)
+            print("There are {} URLs to expand".format(len(urls_to_expand)))
+            total = (len(urls_to_expand) // chunksize) + 1
+            chunk_iter = tqdm(_chunks(urls_to_expand, chunksize=chunksize), total=total)
         else:
-            chunk_iter = _chunks(links_to_unshorten, chunksize=chunksize)
-        
+            chunk_iter = _chunks(urls_to_expand, chunksize=chunksize)
+
         for chunk in chunk_iter:
             # create n_workers threads, and map chunked argumnets to them
-            with concurrent.futures.ThreadPoolExecutor(max_workers = n_workers) as executor:
-                future_to_url = {executor.submit(_expand, url, **kwargs): 
-                                 url for url in chunk}
-                for i, future in enumerate(concurrent.futures.as_completed(future_to_url)):
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=n_workers
+            ) as executor:
+                future_to_url = {
+                    executor.submit(_expand, url, **kwargs): url for url in chunk
+                }
+                for i, future in enumerate(
+                    concurrent.futures.as_completed(future_to_url)
+                ):
                     try:
                         data = future.result()
                     except Exception as exc:
                         data = str(type(exc))
-                        #error.append({chunk[i] : str(type(exc))})
+                        # error.append({chunk[i] : str(type(exc))})
                         if verbose == 2:
-                            print("{} failed to resolve due to error: {}".format(chunk[i],
-                                                                                 str(type(exc))))
+                            print(
+                                "{} failed to resolve due to error: {}".format(
+                                    chunk[i], str(type(exc))
+                                )
+                            )
                     finally:
                         if isinstance(data, dict):
-                            unshortened_urls.append(data)
+                            expanded_urls.append(data)
                             # save the results
                             if cache_file:
-                                with open(cache_file, 'a') as f_:
-                                    f_.write(json.dumps(data) + '\n')
+                                with open(cache_file, "a") as f_:
+                                    f_.write(json.dumps(data) + "\n")
 
         # reorder the urls (or join them into OG list)
-        resolved_dict = {_['original_url'] : _['resolved_url'] for _ in unshortened_urls}
-        unshortened_urls_ = [resolved_dict.get(_,_) for _ in links_to_unshorten_]
+        resolved_dict = {_["original_url"]: _["resolved_url"] for _ in expanded_urls}
+        expanded_urls_ = [resolved_dict.get(_, _) for _ in urls_to_expand_]
 
-        return unshortened_urls_
+        return expanded_urls_
 
 
-def multithread_function(links_to_unshorten, function, cache_col,
-                         chunksize=1280, n_workers=64, 
-                         cache_file=None, random_seed=303, 
-                         verbose=0, **kwargs):
-    '''
-    Calls 'function' with multiple (n_workers) threads.
-    
-    :param links_to_unshorten: (list) a list of urls (str) to unshorten
-    :param chunksize: (int) chunks links_to_unshorten, which makes computation quicker with larger inputs
-    :param n_workers: (int) how many threads
-    :param cache_col: (str) the unique key-name to use to save cached rows.
-    :param cache_file: (str) a path to a json file to read and write results in
-    :param random_seed: (int) initializes the random state for shuffling the input
-    :param verbose: (bool) whether to return errors and updates
-        
-    
-    :returns: (list) a list of dictionaries perfect for Pandas Dataframes.
-    ''' 
+def multithread_function(
+    urls_to_expand,
+    function,
+    cache_col,
+    chunksize=1280,
+    n_workers=64,
+    cache_file=None,
+    random_seed=303,
+    verbose=0,
+    **kwargs,
+):
+    """Calls 'function' with multiple (n_workers) threads.
+
+    :param urls_to_expand: a list of URLs (str) to unshorten
+    :type urls_to_expand: list
+    :param function:
+    :param chunksize: chunks urls_to_expand, which makes computation quicker with larger inputs (Default value = 1280)
+    :type chunksize: int
+    :param n_workers: how many threads (Default value = 64)
+    :type n_workers: int
+    :param cache_col: the unique key-name to use to save cached rows.
+    :type cache_col: str
+    :param cache_file: a path to a json file to read and write results in (Default value = None)
+    :type cache_file: str
+    :param random_seed: initializes the random state for shuffling the input (Default value = 303)
+    :type random_seed: int
+    :param verbose: whether to return errors and updates (Default value = 0)
+    :type verbose: bool
+    :param **kwargs:
+    :returns: expanded_urls-> a list of dictionaries perfect for Pandas Dataframes.
+    :rtype: list
+
+    """
     # shuffle the inputs, this is to reduce the changes of making requests to the same domain.
     np.random.seed(random_seed)
-    np.random.shuffle(links_to_unshorten)
+    np.random.shuffle(urls_to_expand)
 
     # read cache file
-    unshortened_urls = []
+    expanded_urls = []
     error = []
     if cache_file and os.path.exists(cache_file):
-        with open(cache_file, 'r') as f_:
+        with open(cache_file, "r") as f_:
             for line in f_:
-                unshortened_urls.append(json.loads(line))
-            abd_ = [_[cache_col] for _ in unshortened_urls]
-            links_to_unshorten = [link for link in links_to_unshorten if link not in abd_]
-    
+                expanded_urls.append(json.loads(line))
+            abd_ = [_[cache_col] for _ in expanded_urls]
+            urls_to_expand = [url for url in urls_to_expand if url not in abd_]
+
     if verbose:
-        chunk_iter = tqdm(_chunks(links_to_unshorten, chunksize=chunksize))
+        chunk_iter = tqdm(_chunks(urls_to_expand, chunksize=chunksize))
     else:
-        chunk_iter = _chunks(links_to_unshorten, chunksize=chunksize)
+        chunk_iter = _chunks(urls_to_expand, chunksize=chunksize)
 
     for chunk in chunk_iter:
-        # create n_workers threads, and map chunked argumnets to them
-        with concurrent.futures.ThreadPoolExecutor(max_workers = n_workers) as executor:
-            future_to_url = {executor.submit(function, url, **kwargs): 
-                             url for url in chunk}
+        # create n_workers threads, and map chunked arguments to them
+        with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as executor:
+            future_to_url = {
+                executor.submit(function, url, **kwargs): url for url in chunk
+            }
             for i, future in enumerate(concurrent.futures.as_completed(future_to_url)):
                 try:
                     data = future.result()
                 except Exception as exc:
                     data = str(type(exc))
                     if verbose:
-                            print("{} failed to resolve due to error: {}".format(chunk[i],
-                                                                                 str(type(exc))))
+                        print(
+                            "{} failed to resolve due to error: {}".format(
+                                chunk[i], str(type(exc))
+                            )
+                        )
                 finally:
                     if isinstance(data, dict):
-                        unshortened_urls.append(data)
+                        expanded_urls.append(data)
                         # save the results
                         if cache_file:
-                            with open(cache_file, 'a') as f_:
-                                f_.write(json.dumps(data) + '\n')
-    
-    return unshortened_urls
-    
+                            with open(cache_file, "a") as f_:
+                                f_.write(json.dumps(data) + "\n")
+
+    return expanded_urls

@@ -22,6 +22,25 @@ from urlexpander.core import constants, url_utils
 
 LOGGER = logging.getLogger(__name__)
 
+
+def _pick_headers(url):
+    """workaround for expanding t.co links. See constants.py for details.
+
+    :param url: URL
+    :type url: str
+    :returns: headers-> headers used in HTTP request
+    :rtype: dict
+
+    """
+    domain = url_utils.get_domain(url)
+    if domain == "t.co":
+        headers = constants.headers_tw
+    else:
+        headers = constants.headers
+
+    return headers
+
+
 def _chunks(lst, chunksize):
     """Yield successive n-sized chunks from lst.
     Taken from https://stackoverflow.com/a/312464/5094480
@@ -105,7 +124,9 @@ def _expand(url, timeout=10, verbose=False, use_head=True, **kwargs):
             url,
             allow_redirects=True,
             timeout=timeout,
-                    **kwargs)
+            headers=_pick_headers(url),
+            **kwargs,
+        )
         r.raise_for_status()
         url_long = r.url
         domain = url_utils.get_domain(url_long)

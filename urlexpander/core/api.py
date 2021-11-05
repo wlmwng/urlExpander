@@ -3,7 +3,7 @@ This is the main module of the urlExpander package.
 It has the multi-threaded expand function, which is the crux of this package.
 """
 
-__all__ = ["expand", "multithread_function"]
+__all__ = ["expand_with_content", "expand", "multithread_function"]
 __author__ = "Leon Yin"
 
 import concurrent.futures
@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import requests
 import unshortenit
+from newsplease.crawler import response_decoder
 from tqdm import tqdm
 from urlexpander.core import constants, url_utils
 
@@ -54,11 +55,12 @@ def _chunks(lst, chunksize):
     for i in range(0, len(lst), chunksize):
         yield lst[i : i + chunksize]
 
+
 def _parse_error(error, verbose=False):
     """Parse error messages from the server response, to try to figure out what website the bit-link was intended to re-direct to.
         Although some redirects no longer work, we can still use the response from the error to figure out where it would have gone.
 
-    :param error: error response from expand()
+    :param error: error response from expand() or expand_with_content()
     :type error: str
     :param verbose: print error messages (Default value = False)
     :type verbose: bool
@@ -94,6 +96,85 @@ def _parse_error(error, verbose=False):
     return domain, url_endpoint
 
 
+def _expand_with_content(url, timeout=10):
+    """Expands a URL and retrieves the HTML and status info from the server response.
+
+    :param url: URL
+    :type url: str
+    :param timeout: number of seconds to wait for a reseponse (Default value = 10)
+    :type timeout: int
+    :rtype: a dictionary containing the following keys
+       - original_url (str): the input URL
+       - response_url (str): expanded URL, as-is from the server's response
+       - resolved_url (str): expanded URL, processed for errors
+       - resolved_domain (str): extracted URL domain
+       - response_code (int): HTTP status code
+       - response_reason (str): reason for HTTP status
+       - response_text (str): HTML of webpage
+
+    """
+
+    status_code = ""
+    reason = ""
+    response_url = ""
+    text = ""
+
+    try:
+        time.sleep(randint(constants.MIN_DELAY, constants.MAX_DELAY))
+        LOGGER.info(f"_expand_with_content: {url}")
+
+        r = requests.get(
+            url, allow_redirects=True, timeout=timeout, headers=_pick_headers(url)
+        )
+        r.raise_for_status()
+        status_code = r.status_code
+        reason = r.reason
+        response_url = r.url
+        url_long = r.url
+        domain = url_utils.get_domain(url_long)
+        # falls back to r.text if it can't figure out the encoding
+        text = response_decoder.decode_response(r)
+        LOGGER.info(f"success, response URL: {r.url}")
+
+    except requests.exceptions.RequestException as exc:
+        domain, url_long = _parse_error(str(exc))
+
+    if domain in constants.url_appenders:
+        LOGGER.debug("domain in url appenders")
+        url_long = url_long.replace(domain, "")
+        domain = url_utils.get_domain(url_long)
+
+    elif domain in constants.short_domain_ad_redirects or domain == -1:
+        LOGGER.debug("domain in ad redirect")
+        url_long = unshortenit.UnshortenIt().unshorten(url, timeout=timeout)
+        domain = url_utils.get_domain(url_long)
+
+    LOGGER.info(f"resolved URL: {url_long}")
+    return dict(
+        original_url=url,
+        response_url=response_url,
+        resolved_url=url_long,
+        resolved_domain=domain,
+        response_code=status_code,
+        response_reason=reason,
+        resolved_text=text,
+    )
+
+
+def expand_with_content(url, timeout=10):
+    """Wrapper for _expand_with_content
+
+    :param url: URL
+    :type url: str
+    :param timeout: number of seconds to wait for a reseponse (Default value = 10)
+    :type timeout: int
+    :returns: url_content-> see _expand_with_content()
+    :rtype: dict
+    """
+
+    url_content = _expand_with_content(url=url, timeout=timeout)
+
+    return url_content
 
 
 def _expand(url, timeout=10, verbose=False, use_head=True, **kwargs):
